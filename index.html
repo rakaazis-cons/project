@@ -962,14 +962,24 @@
 </div>
 
 <div class="modal-overlay" id="modal-notif" onclick="closeModalOutside(event,'notif')">
-  <div class="modal" style="width:400px">
+  <div class="modal" style="width:400px;min-height:300px">
     <div class="modal-header">
-      <h3>Pesan Tamu Masuk</h3>
+      <h3 id="notifTitle">Pesan Masuk</h3>
       <button class="modal-close" onclick="closeModal('notif')">×</button>
     </div>
-    <div id="notifList" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow-y:auto"></div>
-    <div class="btn-row">
-      <button class="btn-secondary" onclick="clearAllNotifications()">Hapus Semua</button>
+    <div id="notifListView">
+      <div id="notifList" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow-y:auto"></div>
+      <div class="btn-row" style="margin-top:15px">
+        <button class="btn-secondary" onclick="clearAllNotifications()">Bersihkan Riwayat Lokal</button>
+      </div>
+    </div>
+    <div id="notifDetailView" style="display:none;flex-direction:column;gap:15px">
+       <div id="notifDetailSender" style="font-size:12px;color:var(--orange);font-weight:bold;border-bottom:1px solid var(--border);padding-bottom:8px"></div>
+       <div id="notifDetailMessage" style="font-size:14px;line-height:1.6;background:var(--card2);padding:15px;border-radius:8px;white-space:pre-wrap;word-wrap:break-word"></div>
+       <div class="btn-row" style="margin-top:10px">
+         <button class="btn-secondary" onclick="backToNotifList()">Kembali</button>
+         <button class="btn-primary" style="background:var(--red);border-color:var(--red)" id="btnDeleteNotif">Tandai Dibaca (Hapus)</button>
+       </div>
     </div>
   </div>
 </div>
@@ -2282,7 +2292,7 @@ window.sendGuestMessage = async function() {
   const safeMsg = msg.replace(/[<>"']/g, c => ({'<':'','>':"",'"':'','\'':''}[c] || ''));
 
 try {
-    await window._addDoc(window._col(db, 'messages'), {
+    const newDoc = await window._addDoc(window._col(db, 'messages'), {
       from: safeEmail,
       message: safeMsg,
       to: 'raka',
@@ -2295,6 +2305,7 @@ try {
     statusEl.className = 'msg-status ok';
     const currentNotifs = JSON.parse(localStorage.getItem('guest-notifications') || '[]');
     currentNotifs.unshift({
+      id: newDoc.id,
       email: safeEmail,
       message: safeMsg,
       time: new Date().toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
@@ -2475,21 +2486,60 @@ window.loadNotifications = function() {
   }
   if (!list) return;
   if (notifications.length === 0) {
-    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px 0;font-size:12px;">Tidak ada pesan baru.</p>';
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px 0;font-size:12px;">Kotak masuk kosong.</p>';
     return;
   }
   list.innerHTML = notifications.map(n => `
-    <div style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:12px;position:relative">
-      <div style="font-size:11px;color:var(--orange);font-weight:600;margin-bottom:4px">${n.email}</div>
-      <div style="font-size:13px;line-height:1.4;word-break:break-word">${n.message}</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;text-align:right">${n.time}</div>
+    <div onclick="viewNotifDetail('${n.id}')" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:12px;cursor:pointer;transition:0.2s">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:13px;color:var(--text);font-weight:600">${n.email}</span>
+        <span style="font-size:10px;color:var(--muted)">${n.time}</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ketuk untuk membaca pesan...</div>
     </div>
   `).join('');
+};
+
+window.viewNotifDetail = function(id) {
+  const stored = JSON.parse(localStorage.getItem('guest-notifications') || '[]');
+  const notif = stored.find(n => n.id === id);
+  if (!notif) return;
+  document.getElementById('notifListView').style.display = 'none';
+  document.getElementById('notifDetailView').style.display = 'flex';
+  document.getElementById('notifTitle').textContent = 'Membaca Pesan';
+  document.getElementById('notifDetailSender').textContent = 'Dari: ' + notif.email + ' (' + notif.time + ')';
+  document.getElementById('notifDetailMessage').textContent = notif.message;
+  document.getElementById('btnDeleteNotif').onclick = function() {
+    deleteNotifFromServer(id);
+  };
+};
+
+window.backToNotifList = function() {
+  document.getElementById('notifDetailView').style.display = 'none';
+  document.getElementById('notifListView').style.display = 'block';
+  document.getElementById('notifTitle').textContent = 'Pesan Masuk';
+};
+
+window.deleteNotifFromServer = async function(id) {
+  try {
+    if (window._deleteDoc && window._doc) {
+      await window._deleteDoc(window._doc(db, 'messages', id));
+    }
+    let stored = JSON.parse(localStorage.getItem('guest-notifications') || '[]');
+    stored = stored.filter(n => n.id !== id);
+    localStorage.setItem('guest-notifications', JSON.stringify(stored));
+    window.loadNotifications();
+    window.backToNotifList();
+    showToast('Pesan terbaca dan dihapus dari server', 'success');
+  } catch (err) {
+    showToast('Gagal menghapus pesan di server', 'error');
+  }
 };
 
 window.toggleNotifModal = function() {
   const modal = document.getElementById('modal-notif');
   if (modal) {
+    window.backToNotifList();
     window.loadNotifications();
     modal.classList.add('show');
   }
@@ -2498,7 +2548,7 @@ window.toggleNotifModal = function() {
 window.clearAllNotifications = function() {
   localStorage.removeItem('guest-notifications');
   window.loadNotifications();
-  showToast('Semua notifikasi dihapus', 'success');
+  showToast('Riwayat lokal dibersihkan', 'success');
 };
 
 document.addEventListener('DOMContentLoaded', () => {

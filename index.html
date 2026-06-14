@@ -495,9 +495,9 @@
           <svg id="themeIconMoon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
           <svg id="themeIconSun" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         </button>
-        <div class="notif-btn admin-ui-only">
+        <div class="notif-btn admin-ui-only" id="notifBtn" onclick="toggleNotifModal()">
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-          <div class="notif-badge">3</div>
+          <div class="notif-badge" id="notifBadge" style="display:none">0</div>
         </div>
         <button class="login-badge" id="loginBadge" onclick="window._onLoginBadgeClick()">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
@@ -958,6 +958,19 @@
     </div>
     <img id="viewPhotoImg" class="photo-modal-img" src="" alt="">
     <div style="margin-top:10px;font-size:12px;color:var(--muted)" id="viewPhotoMeta"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-notif" onclick="closeModalOutside(event,'notif')">
+  <div class="modal" style="width:400px">
+    <div class="modal-header">
+      <h3>Pesan Tamu Masuk</h3>
+      <button class="modal-close" onclick="closeModal('notif')">×</button>
+    </div>
+    <div id="notifList" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow-y:auto"></div>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="clearAllNotifications()">Hapus Semua</button>
+    </div>
   </div>
 </div>
 
@@ -2268,7 +2281,7 @@ window.sendGuestMessage = async function() {
   const safeEmail = email.replace(/[<>"']/g, '');
   const safeMsg = msg.replace(/[<>"']/g, c => ({'<':'','>':"",'"':'','\'':''}[c] || ''));
 
-  try {
+try {
     await window._addDoc(window._col(db, 'messages'), {
       from: safeEmail,
       message: safeMsg,
@@ -2280,6 +2293,16 @@ window.sendGuestMessage = async function() {
     _msgCooldowns[email] = Date.now();
     statusEl.textContent = 'Pesan berhasil terkirim! Raka akan segera membacanya.';
     statusEl.className = 'msg-status ok';
+    const currentNotifs = JSON.parse(localStorage.getItem('guest-notifications') || '[]');
+    currentNotifs.unshift({
+      email: safeEmail,
+      message: safeMsg,
+      time: new Date().toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+    });
+    localStorage.setItem('guest-notifications', JSON.stringify(currentNotifs));
+    if (typeof window.loadNotifications === 'function') {
+      window.loadNotifications();
+    }
     emailEl.value = '';
     msgEl.value = '';
     updateMsgCount();
@@ -2437,6 +2460,51 @@ if (savedDriveId && document.getElementById('gdriveId')) {
   document.getElementById('gdriveId').value = savedDriveId;
 }
 
+window.loadNotifications = function() {
+  const stored = localStorage.getItem('guest-notifications');
+  const notifications = stored ? JSON.parse(stored) : [];
+  const badge = document.getElementById('notifBadge');
+  const list = document.getElementById('notifList');
+  if (badge) {
+    if (notifications.length > 0) {
+      badge.textContent = notifications.length;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+  if (!list) return;
+  if (notifications.length === 0) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px 0;font-size:12px;">Tidak ada pesan baru.</p>';
+    return;
+  }
+  list.innerHTML = notifications.map(n => `
+    <div style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:12px;position:relative">
+      <div style="font-size:11px;color:var(--orange);font-weight:600;margin-bottom:4px">${n.email}</div>
+      <div style="font-size:13px;line-height:1.4;word-break:break-word">${n.message}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;text-align:right">${n.time}</div>
+    </div>
+  `).join('');
+};
+
+window.toggleNotifModal = function() {
+  const modal = document.getElementById('modal-notif');
+  if (modal) {
+    window.loadNotifications();
+    modal.classList.add('show');
+  }
+};
+
+window.clearAllNotifications = function() {
+  localStorage.removeItem('guest-notifications');
+  window.loadNotifications();
+  showToast('Semua notifikasi dihapus', 'success');
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  window.loadNotifications();
+});
+  
 setAdminUI(sessionStorage.getItem('tuku-admin') === '1');
 loadAll();
 </script>
